@@ -68,12 +68,15 @@ def associate_address(context, public_ip=None, instance_id=None,
         allocation_id, network_interface_id,
         private_ip_address, allow_reassociation)
     if associationId:
+        LOG.info('Associated with id %s', associationId)
         return {'return': True,
                 'associationId': associationId}
     return {'return': True}
 
 
 def disassociate_address(context, public_ip=None, association_id=None):
+    LOG.info('Disassociate address: %(public_ip)s. Association: %(association_id)s.',
+                    {'public_ip': public_ip, 'association_id': association_id})
     if not public_ip and not association_id:
         msg = _('Either public IP or association id must be specified')
         raise exception.MissingParameter(msg)
@@ -81,7 +84,8 @@ def disassociate_address(context, public_ip=None, association_id=None):
         msg = _('You may specify public IP or association id, '
                 'but not both in the same call')
         raise exception.InvalidParameterCombination(msg)
-    address_engine.disassociate_address(context, public_ip, association_id)
+    disassociate = address_engine.disassociate_address(context, public_ip, association_id)
+    LOG.info('Disassociation is %s', disassociate)
     return True
 
 
@@ -135,10 +139,12 @@ class AddressDescriber(common.UniversalDescriber):
 
 def describe_addresses(context, public_ip=None, allocation_id=None,
                        filter=None):
+    LOG.info('Describe_addresses with allocation_id %s', allocation_id)
     formatted_addresses = AddressDescriber(
         address_engine.get_os_ports(context),
         db_api.get_items(context, 'i')).describe(
             context, allocation_id, public_ip, filter)
+    LOG.info('Formatted addresses: %s', formatted_addresses)
     return {'addressesSet': formatted_addresses}
 
 
@@ -385,7 +391,11 @@ class AddressEngineNeutron(object):
 
     def disassociate_address(self, context, public_ip=None,
                              association_id=None):
+        LOG.info('Disassociating %s', association_id)
         neutron = clients.neutron(context)
+
+        floatingips=neutron.list_floatingips(tenant_id=context.project_id)['floatingips']
+        LOG.info('Existing floating ips: %s', floatingips)
 
         if public_ip:
             # TODO(ft): implement search in DB layer
@@ -422,6 +432,7 @@ class AddressEngineNeutron(object):
 
         address = db_api.get_item_by_id(
             context, ec2utils.change_ec2_id_kind(association_id, 'eipalloc'))
+        LOG.info('DB address: %s', address)
         if address is None or not _is_address_valid(context, neutron, address):
             raise exception.InvalidAssociationIDNotFound(
                     id=association_id)
@@ -429,12 +440,15 @@ class AddressEngineNeutron(object):
             with common.OnCrashCleaner() as cleaner:
                 network_interface_id = address['network_interface_id']
                 private_ip_address = address['private_ip_address']
+                LOG.info('Disassociating %(private_ip_address)s from interface %(network_interface_id)s',
+                         {'private_ip_address': private_ip_address, 'network_interface_id': network_interface_id})
                 _disassociate_address_item(context, address)
                 cleaner.addCleanup(_associate_address_item, context, address,
                                    network_interface_id, private_ip_address)
 
-                neutron.update_floatingip(address['os_id'],
-                                          {'floatingip': {'port_id': None}})
+                update = neutron.update_floatingip(address['os_id'],
+                                                   {'floatingip': {'port_id': None}})
+                LOG.info('Neutron.update result is %s', update)
 
     def get_os_floating_ips(self, context):
         neutron = clients.neutron(context)

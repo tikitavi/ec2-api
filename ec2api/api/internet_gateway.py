@@ -74,6 +74,9 @@ def attach_internet_gateway(context, internet_gateway_id, vpc_id):
 def detach_internet_gateway(context, internet_gateway_id, vpc_id):
     igw = ec2utils.get_db_item(context, internet_gateway_id)
     vpc = ec2utils.get_db_item(context, vpc_id)
+    LOG.info('Detaching %(igw)s internet-gateway from %(vpc)s.',
+                {'igw': str(igw), 'vpc': str(vpc)})
+
     if igw.get('vpc_id') != vpc['id']:
         raise exception.GatewayNotAttached(gw_id=igw['id'],
                                            vpc_id=vpc['id'])
@@ -91,6 +94,11 @@ def detach_internet_gateway(context, internet_gateway_id, vpc_id):
                 neutron.remove_gateway_router(vpc['os_id'])
             except neutron_exception.NotFound:
                 pass
+            except Exception as ex:
+                floatingips=neutron.list_floatingips(tenant_id=context.project_id)['floatingips']
+                LOG.info('Existing floating ips: %(floatingips)s. Exception: %(ex)s.',
+                    {'floatingips': floatingips, 'ex': ex})
+
     return True
 
 
